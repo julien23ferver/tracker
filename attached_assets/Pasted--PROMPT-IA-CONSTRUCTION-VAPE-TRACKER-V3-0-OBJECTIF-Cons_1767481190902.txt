@@ -1,0 +1,299 @@
+# PROMPT IA - CONSTRUCTION VAPE TRACKER V3.0
+
+## 🎯 OBJECTIF
+Construis une application web complète pour tracker l'usure des résistances de cigarette électronique. Interface simple, calculs automatiques, stockage persistant.
+
+---
+
+## 📋 SPÉCIFICATIONS TECHNIQUES
+
+### DONNÉES À STOCKER (JSON local)
+```json
+{
+  "resistance_actuelle": {
+    "id": "R#3",
+    "date_debut": "2024-12-20",
+    "compteur_pod": 2070,
+    "taffes_restants": 3100,
+    "ml_restants": 4.8,
+    "usure_pourcent": 11.5,
+    "ohms_initial": 0.40
+  },
+  "historique": [
+    {"id": "R#2", "date_debut": "2024-12-05", "duree_jours": 15, "taffes_total": 3500},
+    {"id": "R#1", "date_debut": "2024-11-18", "duree_jours": 17, "taffes_total": 3800}
+  ],
+  "logs_quotidiens": [
+    {"date": "2025-01-03", "taffes": 150, "ml_ajoutes": 0, "ohms": 0.40}
+  ]
+}
+```
+
+### CALCULS AUTOMATIQUES
+```javascript
+// 1. Usure résistance
+usure = 100 - ((taffes_restants / 3500) * 100)
+
+// 2. Prédiction changement
+taffes_moyen_jour = compteur_pod / jours_depuis_debut
+jours_restants = taffes_restants / taffes_moyen_jour
+date_changement = aujourd'hui + jours_restants
+
+// 3. Prédiction plein liquide
+ml_consommes_jour = compteur_pod * 0.0035  // 3.5ml pour 1000 taffes
+jours_avant_vide = ml_restants / ml_consommes_jour
+date_plein = aujourd'hui + jours_avant_vide
+
+// 4. Alerte ohms
+if (ohms_actuel > ohms_initial + 0.05) {
+  alerte = "Dérive détectée - Résistance s'use plus vite"
+}
+```
+
+### CODES COULEUR
+```
+🟢 VERT  : usure 0-60%   → "Parfait, continue"
+🟠 ORANGE: usure 60-80%  → "Surveille le goût"
+🔴 ROUGE : usure >80%    → "CHANGE MAINTENANT"
+```
+
+---
+
+## 🖥️ INTERFACE UTILISATEUR
+
+### LAYOUT PRINCIPAL (2 colonnes)
+```
+┌─────────────────────────────────────────────────┐
+│         🚬 VAPE TRACKER V3.0                    │
+├──────────────────┬──────────────────────────────┤
+│ COLONNE GAUCHE   │ COLONNE DROITE              │
+│ État Résistance  │ Saisie Quotidienne          │
+├──────────────────┼──────────────────────────────┤
+│ • Barre usure    │ Input: Taffes [   150   ]   │
+│   [████░░] 11.5% │ Input: ML     [   0.0   ]   │
+│                  │ Input: Ohms   [  0.40   ]   │
+│ • Taffes: 3100   │ [💾 ENREGISTRER]            │
+│ • ML: 4.8 ml     │                              │
+│ • Pod: 2070      │                              │
+│                  │                              │
+│ 📅 Prédictions   │ 📊 Stats Rapides            │
+│ Change le:       │ Moyenne: 170 taffes/jour     │
+│ 18 janvier       │ Durée R#3: 14 jours          │
+│ Plein le:        │ Meilleure: R#1 (17j)        │
+│ 6 janvier        │                              │
+└──────────────────┴──────────────────────────────┘
+│ ✅ TOUT VA BIEN - Continue normalement          │
+└─────────────────────────────────────────────────┘
+```
+
+### COMPOSANTS OBLIGATOIRES
+
+**1. Indicateur visuel d'usure**
+- Barre de progression colorée (vert/orange/rouge)
+- Pourcentage affiché en grand
+- Animation fluide lors des updates
+
+**2. Formulaire de saisie**
+- 3 inputs numériques (taffes, ml, ohms)
+- Valeurs par défaut intelligentes (50 taffes, 0 ml, dernier ohms)
+- Validation: taffes > 0, ml ≥ 0, ohms entre 0.3-0.6
+- Bouton gros et visible
+
+**3. Prédictions**
+- Date de changement résistance (calcul automatique)
+- Date de plein liquide (calcul automatique)
+- Affichage en français: "18 janvier" pas "2025-01-18"
+
+**4. Alertes contextuelles**
+```javascript
+if (usure > 80) → Alerte ROUGE "CHANGE MAINTENANT"
+if (usure > 60) → Alerte ORANGE "Surveille le goût"
+if (ml_restants < 1) → Alerte INFO "Liquide faible"
+if (ohms_derive > 0.05) → Alerte WARNING "Ohms anormaux"
+else → Succès VERT "Tout va bien"
+```
+
+**5. Historique (accordéon pliable)**
+- Liste des 3 dernières résistances
+- Affichage: "R#2: 15 jours, 3500 taffes"
+- Comparaison: "R#3 dure moins/plus longtemps"
+
+---
+
+## ⚙️ FONCTIONNALITÉS TECHNIQUES
+
+### STOCKAGE
+- Utilise `window.storage` pour persistance (PAS localStorage)
+- Sauvegarde automatique après chaque action
+- Gestion d'erreurs: si storage fail, affiche message clair
+
+### COMPORTEMENT
+1. **Au chargement:**
+   - Charge données depuis storage
+   - Si aucune donnée: initialise avec valeurs par défaut
+   - Affiche état actuel immédiatement
+
+2. **Lors de la saisie:**
+   - Validation temps réel des inputs
+   - Désactive bouton si valeurs invalides
+   - Preview des calculs avant sauvegarde (optionnel)
+
+3. **Après sauvegarde:**
+   - Recalcule tous les indicateurs
+   - Update interface instantanément
+   - Affiche confirmation "✅ Sauvegardé"
+   - Réinitialise le formulaire (taffes→50, ml→0)
+
+4. **Changement de résistance:**
+   - Bouton "🔄 Nouvelle Résistance"
+   - Déplace résistance actuelle dans historique
+   - Réinitialise compteurs (id→R#4, taffes→0, etc.)
+   - Demande confirmation avant reset
+
+### RESPONSIVE
+- Desktop: 2 colonnes côte à côte
+- Mobile: 1 colonne, prédictions en bas
+- Boutons tactiles larges (min 44px)
+
+---
+
+## 🎨 DESIGN REQUIS
+
+### STYLE
+- Interface moderne, épurée
+- Couleurs: Bleu (#3B82F6) primary, Gris clair background
+- Font: System UI (SF Pro, Segoe UI, Roboto)
+- Bordures arrondies (8px)
+- Ombres légères pour profondeur
+
+### EMOJIS CONTEXTUELS
+```
+🟢 Vert OK
+🟠 Orange Warning  
+🔴 Rouge Danger
+📊 Stats
+📅 Dates
+💨 Taffes
+💧 Liquide
+⚡ Ohms
+🔄 Reset
+💾 Save
+```
+
+---
+
+## ✅ VALIDATION & TESTS
+
+### SCÉNARIOS À TESTER
+1. **Premier lancement:** Données vides → Initialisation OK
+2. **Saisie normale:** 150 taffes, 0 ml → Calculs corrects
+3. **Plein liquide:** Ajoute 10ml → ML restants +10
+4. **Usure critique:** Simule 80% → Alerte rouge visible
+5. **Changement résistance:** Reset → Historique préservé
+6. **Rechargement page:** Données persistent correctement
+
+### ERREURS À GÉRER
+- Storage indisponible → Message clair
+- Valeurs négatives → Refus + alerte
+- Ohms hors limites → Warning visible
+- Date invalide → Fallback "Calcul impossible"
+
+---
+
+## 📦 LIVRABLES ATTENDUS
+
+### CODE
+- **1 seul fichier HTML** avec JS/CSS intégré
+- Aucune dépendance externe (pas de CDN)
+- Code commenté en français
+- Fonctionne offline après 1er chargement
+
+### DOCUMENTATION INTÉGRÉE
+- Aide contextuelle (tooltips sur inputs)
+- Message d'accueil au 1er lancement
+- Instructions claires dans l'interface
+
+---
+
+## 🚀 EXEMPLE D'UTILISATION RÉEL
+
+**Utilisateur type:** Vapoteur quotidien, pas de connaissances techniques
+
+**Flow quotidien (15 secondes):**
+```
+1. Ouvre l'app (bookmark navigateur)
+2. Lit son compteur pod: 2220 taffes (+150 depuis hier)
+3. Saisit: 150 taffes, 0 ml, 0.40 ohms
+4. Clique "Enregistrer"
+5. Lit: "Usure 13.2% 🟢 - Change le 18 janvier"
+6. Ferme l'app
+```
+
+**Flow hebdomadaire (plein liquide):**
+```
+1. Fait plein: 10ml ajoutés
+2. Saisit: 180 taffes, 10 ml, 0.41 ohms
+3. Lit: "ML restants: 14.1 ml - Prochain plein le 15 janvier"
+```
+
+**Flow mensuel (changement résistance):**
+```
+1. Goût altéré, usure 82% 🔴
+2. Clique "Nouvelle Résistance"
+3. Confirme → Reset
+4. R#3 sauvegardé dans historique
+5. Commence suivi de R#4
+```
+
+---
+
+## 💡 CONTRAINTES IMPORTANTES
+
+### OBLIGATOIRE
+- ✅ Calculs automatiques (pas de calcul manuel utilisateur)
+- ✅ Interface en français
+- ✅ Stockage persistant avec `window.storage`
+- ✅ Affichage immédiat de l'état actuel
+- ✅ Design responsive mobile/desktop
+- ✅ Code propre et maintenable
+
+### INTERDIT
+- ❌ Connexion internet requise (hors 1er chargement)
+- ❌ Bibliothèques externes lourdes
+- ❌ Animations tape-à-l'œil qui ralentissent
+- ❌ Jargon technique dans l'interface
+- ❌ localStorage/sessionStorage (utilise window.storage)
+
+---
+
+## 🎯 PRIORITÉS DE DÉVELOPPEMENT
+
+**P0 (Critique):**
+1. Stockage persistant fonctionnel
+2. Calculs d'usure précis
+3. Interface de saisie quotidienne
+4. Alertes couleur fonctionnelles
+
+**P1 (Important):**
+5. Prédictions dates
+6. Historique résistances
+7. Changement de résistance
+8. Design responsive
+
+**P2 (Nice to have):**
+9. Graphique évolution usure
+10. Export données CSV
+11. Thème sombre
+12. Animations polies
+
+---
+
+## ✨ RÉSULTAT ATTENDU
+
+Une application que **n'importe qui** peut utiliser en 30 secondes sans lire de manuel. L'utilisateur regarde l'écran et comprend instantanément si sa résistance va bien ou doit être changée.
+
+**Critère de succès:** Un débutant complet peut gérer sa vape sans jamais changer une résistance trop tôt ou trop tard.
+
+---
+
+**Build this app. Make it simple, beautiful, and functional. Ready to deploy.**
