@@ -117,7 +117,7 @@ export default function Dashboard() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="usure" className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <TabsContent value="usure" className="space-y-6">
               {/* Status Banner */}
               <StatusBanner 
                 isWarning={isDanger || isWarning} 
@@ -203,7 +203,7 @@ export default function Dashboard() {
               <HistoryAccordion history={historique} />
             </TabsContent>
 
-            <TabsContent value="conso" className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <TabsContent value="conso" className="space-y-6">
                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                   
                   {/* Left Column in Conso Tab: Entry Form & Stats */}
