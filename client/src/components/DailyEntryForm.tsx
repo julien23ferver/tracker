@@ -22,9 +22,10 @@ interface DailyEntryFormProps {
   coilId: number;
   currentOhms: number;
   currentTotalPuffs: number;
+  onSuccess?: () => void;
 }
 
-export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: DailyEntryFormProps) {
+export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs, onSuccess }: DailyEntryFormProps) {
   const mutation = useAddEntry();
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<EntryFormData>({
@@ -66,6 +67,7 @@ export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: Daily
           measuredOhms: data.measuredOhms,
           date: format(new Date(), "yyyy-MM-dd"),
         });
+        if (onSuccess) onSuccess();
       }
     });
   };

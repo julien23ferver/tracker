@@ -174,6 +174,7 @@ export default function Dashboard() {
                       coilId={current.id} 
                       currentOhms={current.ohms_actuel} 
                       currentTotalPuffs={deviceTotalPuffs}
+                      onSuccess={() => setIsEntryOpen(false)}
                     />
                   </DialogContent>
                 </Dialog>
