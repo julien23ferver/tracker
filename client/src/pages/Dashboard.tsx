@@ -52,15 +52,14 @@ export default function Dashboard() {
   const rawAvg = current ? Math.round(current.compteur_pod / daysActive) : 0;
   const avgPuffs = rawAvg < 50 ? 150 : rawAvg;
 
-  // Simple linear prediction
+  // Force projection based on target usage (150 puffs/day) for stability
+  const TARGET_DAILY_PUFFS = 150;
+  
+  // Simple linear prediction based on TARGET
   const estimatedDaysRemaining = current 
-    ? Math.max(0, Math.floor(current.taffes_restants / (avgPuffs || 1))) 
+    ? Math.max(0, Math.floor(current.taffes_restants / TARGET_DAILY_PUFFS)) 
     : 0;
   const predictedEndDate = addDays(new Date(), estimatedDaysRemaining);
-
-  // Calculate Device Total (History + Current)
-  const historyTotal = historique.reduce((acc, coil) => acc + coil.taffes_total, 0);
-  const deviceTotalPuffs = historyTotal + (current?.compteur_pod || 0);
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
@@ -178,7 +177,7 @@ export default function Dashboard() {
               {/* Predictions Card */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <MetricCard 
-                   label="Changement estimé" 
+                   label="Changement estimé (sur 150/j)" 
                    value={format(predictedEndDate, "d MMM", { locale: fr })}
                    subValue={`dans ~${estimatedDaysRemaining}j`}
                    icon={<Calendar className="w-5 h-5" />}

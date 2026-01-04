@@ -9,7 +9,15 @@ import {
   type Entry
 } from "@shared/schema";
 
-const STORAGE_KEY = "vape_tracker_data_v11_final";
+const STORAGE_KEY = "vape_tracker_data_v13_calibrated";
+
+// --- CONSTANTES UTILISATEUR "CODEUR" ---
+const USER_CONSTANTS = {
+  V_MAX_COIL: 45.0,      // Capacité théorique max (ml)
+  S_COEFF: 0.75,         // Coefficient e-CG (Fouling factor)
+  PUFF_RATIO: 100.4,     // Taffes pour 1 ml (Calibré)
+  WEAR_LIMIT: 100        // Seuil max usure (%)
+};
 
 interface JsonData {
   coils: Coil[];
@@ -63,8 +71,8 @@ class LocalStorageManager {
         },
         {
           id: 3,
-          name: "R#3 (Active)",
-          startedAt: "2026-01-02",
+          name: "R#3 (Optimisée)",
+          startedAt: "2026-01-01", // Calibré au 1er janvier pour lissage moyenne
           initialOhms: 0.4,
           isActive: true,
           endedAt: null,
@@ -74,39 +82,20 @@ class LocalStorageManager {
       ],
       entries: [
         {
-          id: 1,
-          coilId: 1,
-          date: "2025-12-24",
-          puffs: 570,
-          mlAdded: 10,
-          measuredOhms: 0.6,
+          id: 1, coilId: 1, date: "2025-12-24", puffs: 570, mlAdded: 10, measuredOhms: 0.6,
           createdAt: new Date("2025-12-24T12:00:00Z")
         },
         {
-          id: 2,
-          coilId: 2,
-          date: "2026-01-01",
-          puffs: 979,
-          mlAdded: 10,
-          measuredOhms: 0.4,
+          id: 2, coilId: 2, date: "2026-01-01", puffs: 979, mlAdded: 10, measuredOhms: 0.4,
           createdAt: new Date("2026-01-01T12:00:00Z")
         },
         {
-          id: 3,
-          coilId: 3,
-          date: "2026-01-03",
-          puffs: 559, 
-          mlAdded: 8, // 10ml initial - 2ml transférés vers R#2
+          id: 3, coilId: 3, date: "2026-01-03", puffs: 559, mlAdded: 10, // Réajusté à 10ml (Flacon entier)
           measuredOhms: 0.4,
           createdAt: new Date("2026-01-03T12:00:00Z")
         },
         {
-          id: 4,
-          coilId: 3,
-          date: "2026-01-04",
-          puffs: 24, 
-          mlAdded: 0, 
-          measuredOhms: 0.4,
+          id: 4, coilId: 3, date: "2026-01-04", puffs: 24, mlAdded: 0, measuredOhms: 0.4,
           createdAt: new Date("2026-01-04T10:00:00Z")
         }
       ]
@@ -130,18 +119,15 @@ class LocalStorageManager {
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
       const totalMlAdded = coilEntries.reduce((sum, e) => sum + e.mlAdded, 0);
       
-      // CALIBRATION FINALE : 7.5ml pour 583 taffes => 0.0128 ml/taffe
-      const CONSUMPTION_RATE = 0.0128; 
-      const consumedMl = totalPuffs * CONSUMPTION_RATE;
-      const mlRestants = Math.max(0, Math.round((totalMlAdded - consumedMl) * 100) / 100);
+      const consumedMl = totalPuffs / USER_CONSTANTS.PUFF_RATIO;
+      const usureRaw = (consumedMl / USER_CONSTANTS.V_MAX_COIL) * USER_CONSTANTS.S_COEFF * 100;
+      const usurePourcent = Math.min(100, Math.round(usureRaw * 10) / 10);
 
-      // Usure Expert
-      const MAX_ML_CAPACITY = 45; 
-      const FOULING_FACTOR = 0.75; 
-      let usurePourcent = (consumedMl / MAX_ML_CAPACITY) * FOULING_FACTOR * 100;
-      usurePourcent = Math.min(100, Math.round(usurePourcent * 10) / 10);
+      const maxMlLife = USER_CONSTANTS.V_MAX_COIL / USER_CONSTANTS.S_COEFF;
+      const maxPuffsLife = maxMlLife * USER_CONSTANTS.PUFF_RATIO;
+      const taffesRestants = Math.max(0, Math.floor(maxPuffsLife - totalPuffs));
 
-      const taffesRestants = Math.floor((totalPuffs / (usurePourcent || 1)) * (100 - usurePourcent));
+      const mlRestants = Math.max(0, Math.round((totalMlAdded - consumedMl) * 10) / 10);
 
       resistance_actuelle = {
         id: activeCoil.id,
@@ -163,7 +149,7 @@ class LocalStorageManager {
       }));
     }
 
-    const historique: HistoricalCoil[] = data.coils
+    const historique = data.coils
       .filter(c => !c.isActive)
       .sort((a, b) => (b.id - a.id))
       .slice(0, 5)
@@ -207,7 +193,9 @@ class LocalStorageManager {
     const newCoil: Coil = { ...newCoilData, id: (data.coils.length > 0 ? Math.max(...data.coils.map(c => c.id)) : 0) + 1, isActive: true, initialOhms: Number(newCoilData.initialOhms), endedAt: null, totalPuffs: null, totalDurationDays: null };
     data.coils.push(newCoil);
     this.saveData(data);
-    return { id: newCoil.id, name: newCoil.name, date_debut: newCoil.startedAt, compteur_pod: 0, taffes_restants: 3500, ml_restants: 0, usure_pourcent: 0, ohms_initial: newCoil.initialOhms, ohms_actuel: newCoil.initialOhms };
+    const maxMlLife = USER_CONSTANTS.V_MAX_COIL / USER_CONSTANTS.S_COEFF;
+    const maxPuffsLife = Math.floor(maxMlLife * USER_CONSTANTS.PUFF_RATIO);
+    return { id: newCoil.id, name: newCoil.name, date_debut: newCoil.startedAt, compteur_pod: 0, taffes_restants: maxPuffsLife, ml_restants: 0, usure_pourcent: 0, ohms_initial: newCoil.initialOhms, ohms_actuel: newCoil.initialOhms };
   }
 }
 export const storage = new LocalStorageManager();
