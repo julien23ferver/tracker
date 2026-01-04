@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Cigarette, Droplets, Zap, Save, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { useEffect } from "react";
 
 const entrySchema = z.object({
   puffs: z.coerce.number().min(0),
