@@ -33,7 +33,7 @@ export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: Daily
       puffs: currentTotalPuffs,
       mlAdded: 0,
       measuredOhms: currentOhms,
-      date: new Date().toISOString().split('T')[0],
+      date: format(new Date(), "yyyy-MM-dd"),
     }
   });
 
@@ -64,7 +64,7 @@ export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: Daily
           puffs: data.puffs, 
           mlAdded: 0,
           measuredOhms: data.measuredOhms,
-          date: new Date().toISOString().split('T')[0],
+          date: format(new Date(), "yyyy-MM-dd"),
         });
       }
     });
