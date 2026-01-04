@@ -48,13 +48,19 @@ export default function Dashboard() {
   
   // Calculate average puffs per day for current coil
   const daysActive = current ? Math.max(1, Math.floor((new Date().getTime() - new Date(current.date_debut).getTime()) / (1000 * 60 * 60 * 24))) : 1;
-  const avgPuffs = current ? Math.round(current.compteur_pod / daysActive) : 0;
+  // Use a fallback of 150 puffs/day (User average) if calculated average is skewed by short duration
+  const rawAvg = current ? Math.round(current.compteur_pod / daysActive) : 0;
+  const avgPuffs = rawAvg < 50 ? 150 : rawAvg;
 
   // Simple linear prediction
   const estimatedDaysRemaining = current 
     ? Math.max(0, Math.floor(current.taffes_restants / (avgPuffs || 1))) 
     : 0;
   const predictedEndDate = addDays(new Date(), estimatedDaysRemaining);
+
+  // Calculate Device Total (History + Current)
+  const historyTotal = historique.reduce((acc, coil) => acc + coil.taffes_total, 0);
+  const deviceTotalPuffs = historyTotal + (current?.compteur_pod || 0);
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
@@ -67,13 +73,13 @@ export default function Dashboard() {
             <p className="text-muted-foreground font-medium">Suivi d'utilisation et maintenance</p>
           </div>
           {current && (
-            <div className="bg-white px-4 py-2 rounded-lg border border-border/50 shadow-sm flex items-center gap-3">
-              <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold">
-                {current.name.substring(0, 3)}
+            <div className="bg-primary px-6 py-3 rounded-2xl shadow-lg shadow-primary/20 flex items-center gap-4">
+              <div className="bg-white/20 p-2 rounded-xl">
+                <Cigarette className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Résistance Actuelle</div>
-                <div className="font-bold text-slate-900">{current.name}</div>
+                <div className="text-xs text-primary-foreground/70 uppercase tracking-widest font-bold">Total Appareil</div>
+                <div className="text-2xl font-black text-white leading-none">{deviceTotalPuffs}</div>
               </div>
             </div>
           )}
@@ -101,7 +107,7 @@ export default function Dashboard() {
               {/* Status Banner */}
               <StatusBanner 
                 isWarning={isDanger || isWarning} 
-                message={isDanger ? "🔴 CHANGE MAINTENANT (Usure critique)" : isWarning ? "⚠️ Prévoir changement bientôt" : "✅ TOUT VA BIEN"} 
+                message={isDanger ? "🔴 CHANGE MAINTENANT (Usure critique)" : isWarning ? "⚠️ Prévoir changement bientôt" : "✅ SYSTÈME OPTIMAL"} 
               />
               
               {/* Ohms specific warning */}
@@ -120,7 +126,7 @@ export default function Dashboard() {
                 
                 <div className="relative z-10">
                   <h2 className="text-xl font-bold font-display text-slate-900 mb-6 flex items-center gap-2">
-                    État d'usure
+                    Santé Résistance (Cycle Liquide)
                     <span className={`text-xs px-2 py-0.5 rounded-full text-white font-bold ml-2 ${wearColor}`}>
                       {current.usure_pourcent.toFixed(1)}%
                     </span>
@@ -128,7 +134,7 @@ export default function Dashboard() {
                   
                   <div className="space-y-2 mb-8">
                     <div className="flex justify-between text-sm font-medium mb-1">
-                      <span className="text-muted-foreground">Progression de vie</span>
+                      <span className="text-muted-foreground">Encrassement estimé</span>
                       <span className={`${(current.usure_pourcent || 0) > 80 ? "text-destructive" : "text-emerald-600"}`}>
                         {current.usure_pourcent.toFixed(1)}%
                       </span>
@@ -136,7 +142,7 @@ export default function Dashboard() {
                     <Progress value={current.usure_pourcent} className="h-4 bg-slate-100" indicatorClassName={wearColor} />
                     <div className="flex justify-between text-xs text-muted-foreground mt-2">
                       <span>Neuf</span>
-                      <span>Critique (80%)</span>
+                      <span>Seuil Remplacement (100%)</span>
                     </div>
                   </div>
 
@@ -149,9 +155,9 @@ export default function Dashboard() {
                     </div>
                     <div className="bg-slate-50 p-4 rounded-2xl">
                       <div className="text-muted-foreground text-xs font-bold uppercase mb-1 flex items-center gap-1">
-                        <Droplets className="w-3 h-3" /> Conso
+                        <Droplets className="w-3 h-3" /> Liq. Restant
                       </div>
-                      <div className="text-2xl font-bold text-slate-900">{current.ml_restants.toFixed(1)} <span className="text-sm font-normal text-muted-foreground">ml est.</span></div>
+                      <div className="text-2xl font-bold text-slate-900">{current.ml_restants.toFixed(1)} <span className="text-sm font-normal text-muted-foreground">ml</span></div>
                     </div>
                     <div className="bg-slate-50 p-4 rounded-2xl">
                       <div className="text-muted-foreground text-xs font-bold uppercase mb-1 flex items-center gap-1">
@@ -196,6 +202,7 @@ export default function Dashboard() {
                 <DailyEntryForm 
                   coilId={current.id} 
                   currentOhms={current.ohms_actuel} 
+                  currentTotalPuffs={deviceTotalPuffs}
                 />
                 
                 {/* Mini Log Feed */}

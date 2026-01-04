@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Cigarette, Droplets, Zap, Save, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { useEffect } from "react";
 
 const entrySchema = z.object({
   puffs: z.coerce.number().min(0),
@@ -21,34 +22,53 @@ type EntryFormData = z.infer<typeof entrySchema>;
 interface DailyEntryFormProps {
   coilId: number;
   currentOhms: number;
+  currentTotalPuffs: number;
 }
 
-export function DailyEntryForm({ coilId, currentOhms }: DailyEntryFormProps) {
+export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: DailyEntryFormProps) {
   const mutation = useAddEntry();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<EntryFormData>({
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<EntryFormData>({
     resolver: zodResolver(entrySchema),
     defaultValues: {
-      puffs: 50,
+      puffs: currentTotalPuffs,
       mlAdded: 0,
       measuredOhms: currentOhms,
       date: new Date().toISOString().split('T')[0],
     }
   });
 
+  // Watch values
+  const watchedPuffs = watch("puffs");
+
+  // Auto-calculate ML based on puffs (1ml / 100 puffs)
+  useEffect(() => {
+    if (watchedPuffs > currentTotalPuffs) {
+        const diff = watchedPuffs - currentTotalPuffs;
+        const estimatedMl = Math.round((diff / 100) * 10) / 10; // Round to 1 decimal
+        setValue("mlAdded", estimatedMl);
+    }
+  }, [watchedPuffs, currentTotalPuffs, setValue]);
+
   const onSubmit = (data: EntryFormData) => {
+    let dailyPuffs = data.puffs;
+    
+    if (data.puffs >= currentTotalPuffs) {
+      dailyPuffs = data.puffs - currentTotalPuffs;
+    } 
+
     mutation.mutate({
       coilId,
       date: data.date,
-      puffs: data.puffs,
+      puffs: dailyPuffs,
       mlAdded: data.mlAdded,
       measuredOhms: data.measuredOhms,
     }, {
       onSuccess: () => {
         reset({
-          puffs: 50,
+          puffs: data.puffs, 
           mlAdded: 0,
-          measuredOhms: data.measuredOhms, // Keep last known ohms
+          measuredOhms: data.measuredOhms,
           date: new Date().toISOString().split('T')[0],
         });
       }
@@ -60,7 +80,7 @@ export function DailyEntryForm({ coilId, currentOhms }: DailyEntryFormProps) {
       <div className="bg-primary/5 p-6 border-b border-primary/10">
         <h2 className="text-xl font-bold font-display text-primary flex items-center gap-2">
           <span className="bg-primary text-white p-1 rounded-md"><Save className="w-4 h-4" /></span>
-          Saisie Quotidienne
+          Relevé Compteur
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           {format(new Date(), "EEEE d MMMM yyyy", { locale: fr })}
@@ -73,14 +93,19 @@ export function DailyEntryForm({ coilId, currentOhms }: DailyEntryFormProps) {
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-foreground/80">
               <Cigarette className="w-4 h-4 text-primary" />
-              Taffes (Puffs)
+              Compteur Total (Puffs)
             </Label>
-            <Input 
-              type="number" 
-              className="h-12 text-lg font-medium bg-slate-50 border-slate-200 focus:bg-white transition-all"
-              placeholder="50"
-              {...register("puffs")}
-            />
+            <div className="relative">
+                <Input 
+                  type="number" 
+                  className="h-12 text-lg font-medium bg-slate-50 border-slate-200 focus:bg-white transition-all pr-12"
+                  placeholder={currentTotalPuffs.toString()}
+                  {...register("puffs")}
+                />
+                <div className="absolute right-3 top-3 text-xs text-muted-foreground font-mono bg-slate-100 px-1.5 py-0.5 rounded">
+                    Diff: +{Math.max(0, (watchedPuffs || 0) - currentTotalPuffs)}
+                </div>
+            </div>
             {errors.puffs && <p className="text-red-500 text-xs">{errors.puffs.message}</p>}
           </div>
 
@@ -88,16 +113,22 @@ export function DailyEntryForm({ coilId, currentOhms }: DailyEntryFormProps) {
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-foreground/80">
               <Droplets className="w-4 h-4 text-blue-500" />
-              Liquide Ajouté (ml)
+              Liquide Ajouté (Remplissage)
             </Label>
-            <Input 
-              type="number" 
-              step="0.1"
-              className="h-12 text-lg font-medium bg-slate-50 border-slate-200 focus:bg-white transition-all"
-              placeholder="0.0"
-              {...register("mlAdded")}
-            />
+            <div className="relative">
+                <Input 
+                  type="number" 
+                  step="0.1"
+                  className="h-12 text-lg font-medium bg-slate-50 border-slate-200 focus:bg-white transition-all"
+                  placeholder="0.0"
+                  {...register("mlAdded")}
+                />
+                <div className="absolute right-3 top-3 text-[10px] text-muted-foreground bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                    Est. conso: ~{watchedPuffs > currentTotalPuffs ? ((watchedPuffs - currentTotalPuffs) / 100).toFixed(1) : 0}ml
+                </div>
+            </div>
             {errors.mlAdded && <p className="text-red-500 text-xs">{errors.mlAdded.message}</p>}
+            <p className="text-[10px] text-amber-600 font-medium">Mettre à 0 si pas de remplissage !</p>
           </div>
 
           {/* Ohms Input */}

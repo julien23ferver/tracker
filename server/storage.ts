@@ -1,16 +1,16 @@
 
-import { db } from "./db";
 import {
-  coils,
-  entries,
   type InsertCoil,
   type InsertEntry,
   type CurrentCoilStatus,
   type HistoricalCoil,
   type DailyLog,
-  type AppStateResponse
+  type AppStateResponse,
+  type Coil,
+  type Entry
 } from "@shared/schema";
-import { eq, desc, asc, and } from "drizzle-orm";
+import fs from "fs/promises";
+import path from "path";
 
 export interface IStorage {
   getAppState(): Promise<AppStateResponse>;
@@ -18,22 +18,47 @@ export interface IStorage {
   resetCoil(coil: InsertCoil): Promise<CurrentCoilStatus>;
 }
 
-export class DatabaseStorage implements IStorage {
+interface JsonData {
+  coils: Coil[];
+  entries: Entry[];
+}
+
+export class JSONFileStorage implements IStorage {
+  private filePath = path.join(process.cwd(), "data.json");
+  private data: JsonData | null = null;
+
+  private async loadData(): Promise<JsonData> {
+    if (this.data) return this.data;
+    try {
+      const content = await fs.readFile(this.filePath, "utf-8");
+      this.data = JSON.parse(content);
+    } catch (e) {
+      // File doesn't exist or invalid, initialize empty
+      this.data = { coils: [], entries: [] };
+      await this.saveData();
+    }
+    return this.data!;
+  }
+
+  private async saveData() {
+    if (!this.data) return;
+    await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2));
+  }
+
   async getAppState(): Promise<AppStateResponse> {
+    const data = await this.loadData();
+    
     // 1. Get active coil
-    const activeCoil = await db.query.coils.findFirst({
-      where: eq(coils.isActive, true),
-    });
+    const activeCoil = data.coils.find(c => c.isActive);
 
     let resistance_actuelle: CurrentCoilStatus | null = null;
     let logs_quotidiens: DailyLog[] = [];
 
     if (activeCoil) {
       // Get entries for active coil
-      const coilEntries = await db.query.entries.findMany({
-        where: eq(entries.coilId, activeCoil.id),
-        orderBy: [desc(entries.date)],
-      });
+      const coilEntries = data.entries
+        .filter(e => e.coilId === activeCoil.id)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       // Calculate stats
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
@@ -41,24 +66,10 @@ export class DatabaseStorage implements IStorage {
       const latestEntry = coilEntries[0];
       const currentOhms = latestEntry?.measuredOhms ?? activeCoil.initialOhms;
       
-      // Calculate derived stats
-      // Spec: usure = 100 - ((taffes_restants / 3500) * 100)
-      // So: taffes_restants = 3500 - totalPuffs
       const maxPuffs = 3500;
       const taffesRestants = Math.max(0, maxPuffs - totalPuffs);
       const usurePourcent = Math.min(100, Math.round(((totalPuffs) / maxPuffs) * 100 * 10) / 10);
       
-      // ML calculation: 
-      // Spec: ml_consommes_jour = compteur_pod * 0.0035 (This formula in spec seems to imply total consumption?)
-      // Spec says: "ml_restants: 4.8".
-      // Let's assume we track a "tank" level or similar? 
-      // Actually, spec says: "Plein liquide... ml_ajoutes".
-      // Let's track a "virtual tank" that starts at 0? Or maybe we just track remaining capacity if we knew consumption rate?
-      // Spec: "ml_restants" is a field. "ml_consommes_jour = compteur_pod * 0.0035"
-      // Wait, "compteur_pod" is total puffs. 
-      // Let's implement a simple logic: Start with 0, add MLs. 
-      // Consumption = totalPuffs * 0.0035 (3.5ml per 1000 puffs).
-      // Remaining = TotalAdded - Consumption.
       const consumptionRate = 0.0035; // ml per puff
       const consumedMl = totalPuffs * consumptionRate;
       const mlRestants = Math.max(0, Math.round((totalMl - consumedMl) * 10) / 10);
@@ -84,11 +95,14 @@ export class DatabaseStorage implements IStorage {
     }
 
     // 2. Get history
-    const historyCoils = await db.query.coils.findMany({
-      where: eq(coils.isActive, false),
-      orderBy: [desc(coils.endedAt)],
-      limit: 5,
-    });
+    const historyCoils = data.coils
+      .filter(c => !c.isActive)
+      .sort((a, b) => {
+        const dateA = a.endedAt ? new Date(a.endedAt).getTime() : 0;
+        const dateB = b.endedAt ? new Date(b.endedAt).getTime() : 0;
+        return dateB - dateA;
+      })
+      .slice(0, 5);
 
     const historique: HistoricalCoil[] = historyCoils.map(c => ({
       id: c.id,
@@ -106,7 +120,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addEntry(entry: InsertEntry): Promise<DailyLog> {
-    const [newEntry] = await db.insert(entries).values(entry).returning();
+    const data = await this.loadData();
+    const newEntry: Entry = {
+      ...entry,
+      id: (data.entries.length > 0 ? Math.max(...data.entries.map(e => e.id)) : 0) + 1,
+      createdAt: new Date(),
+      mlAdded: entry.mlAdded ?? 0,
+    };
+    
+    data.entries.push(newEntry);
+    await this.saveData();
+
     return {
       date: newEntry.date,
       taffes: newEntry.puffs,
@@ -116,38 +140,39 @@ export class DatabaseStorage implements IStorage {
   }
 
   async resetCoil(newCoilData: InsertCoil): Promise<CurrentCoilStatus> {
+    const data = await this.loadData();
+
     // 1. Archive current
-    const activeCoil = await db.query.coils.findFirst({
-      where: eq(coils.isActive, true),
-    });
+    const activeCoil = data.coils.find(c => c.isActive);
 
     if (activeCoil) {
       // Calculate final stats
-      const coilEntries = await db.query.entries.findMany({
-        where: eq(entries.coilId, activeCoil.id),
-      });
+      const coilEntries = data.entries.filter(e => e.coilId === activeCoil.id);
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
       const startDate = new Date(activeCoil.startedAt);
       const endDate = new Date();
       const durationDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
 
-      await db.update(coils)
-        .set({
-          isActive: false,
-          endedAt: endDate.toISOString().split('T')[0],
-          totalPuffs,
-          totalDurationDays: durationDays,
-        })
-        .where(eq(coils.id, activeCoil.id));
+      activeCoil.isActive = false;
+      activeCoil.endedAt = endDate.toISOString().split('T')[0];
+      activeCoil.totalPuffs = totalPuffs;
+      activeCoil.totalDurationDays = durationDays;
     }
 
     // 2. Create new
-    const [newCoil] = await db.insert(coils).values({
+    const newCoil: Coil = {
       ...newCoilData,
+      id: (data.coils.length > 0 ? Math.max(...data.coils.map(c => c.id)) : 0) + 1,
       isActive: true,
-    }).returning();
+      endedAt: null,
+      totalPuffs: null,
+      totalDurationDays: null,
+    };
 
-    // Return status (empty initially)
+    data.coils.push(newCoil);
+    await this.saveData();
+
+    // Return status
     return {
       id: newCoil.id,
       name: newCoil.name,
@@ -162,4 +187,5 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new JSONFileStorage();
+
