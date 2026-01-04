@@ -62,7 +62,7 @@ export class JSONFileStorage implements IStorage {
         .filter(e => e.coilId === activeCoil.id)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      // --- ALGORITHME DE CALCUL V2.0 ---
+      // --- ALGORITHME DE CALCUL V2.0 (CODEUR) ---
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
       const totalMlAdded = coilEntries.reduce((sum, e) => sum + e.mlAdded, 0);
       
