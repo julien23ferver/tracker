@@ -1,4 +1,3 @@
-
 import {
   type InsertCoil,
   type InsertEntry,
@@ -11,6 +10,13 @@ import {
 } from "@shared/schema";
 import fs from "fs/promises";
 import path from "path";
+
+// --- CONSTANTES UTILISATEUR "CODEUR" (OXVA 0.4Ω + e-CG) ---
+const USER_CONSTANTS = {
+  V_MAX_COIL: 45.0,      // Capacité théorique max (ml) avant carbone
+  S_COEFF: 0.75,         // Coefficient e-CG (très propre)
+  PUFF_RATIO: 100.4      // Taffes pour 1 ml (Ta stat réelle)
+};
 
 export interface IStorage {
   getAppState(): Promise<AppStateResponse>;
@@ -33,7 +39,6 @@ export class JSONFileStorage implements IStorage {
       const content = await fs.readFile(this.filePath, "utf-8");
       this.data = JSON.parse(content);
     } catch (e) {
-      // File doesn't exist or invalid, initialize empty
       this.data = { coils: [], entries: [] };
       await this.saveData();
     }
@@ -47,32 +52,38 @@ export class JSONFileStorage implements IStorage {
 
   async getAppState(): Promise<AppStateResponse> {
     const data = await this.loadData();
-    
-    // 1. Get active coil
     const activeCoil = data.coils.find(c => c.isActive);
 
     let resistance_actuelle: CurrentCoilStatus | null = null;
     let logs_quotidiens: DailyLog[] = [];
 
     if (activeCoil) {
-      // Get entries for active coil
       const coilEntries = data.entries
         .filter(e => e.coilId === activeCoil.id)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      // Calculate stats
+      // --- ALGORITHME DE CALCUL V2.0 ---
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
-      const totalMl = coilEntries.reduce((sum, e) => sum + e.mlAdded, 0);
+      const totalMlAdded = coilEntries.reduce((sum, e) => sum + e.mlAdded, 0);
+      
+      // 1. Calcul Consommation Réelle
+      const consumedMl = totalPuffs / USER_CONSTANTS.PUFF_RATIO;
+      
+      // 2. Stock Liquide Restant
+      const mlRestants = Math.max(0, Math.round((totalMlAdded - consumedMl) * 10) / 10);
+
+      // 3. Formule d'Usure "Chimique"
+      // U = (V_actuel / V_max) * S * 100
+      const usureRaw = (consumedMl / USER_CONSTANTS.V_MAX_COIL) * USER_CONSTANTS.S_COEFF * 100;
+      const usurePourcent = Math.min(100, Math.round(usureRaw * 10) / 10);
+
+      // 4. Projection Autonomie (Taffes restantes avant 100% usure)
+      const maxMlLife = USER_CONSTANTS.V_MAX_COIL / USER_CONSTANTS.S_COEFF; // = 60ml
+      const maxPuffsLife = maxMlLife * USER_CONSTANTS.PUFF_RATIO; // = ~6000 taffes
+      const taffesRestants = Math.max(0, Math.floor(maxPuffsLife - totalPuffs));
+
       const latestEntry = coilEntries[0];
       const currentOhms = latestEntry?.measuredOhms ?? activeCoil.initialOhms;
-      
-      const maxPuffs = 3500;
-      const taffesRestants = Math.max(0, maxPuffs - totalPuffs);
-      const usurePourcent = Math.min(100, Math.round(((totalPuffs) / maxPuffs) * 100 * 10) / 10);
-      
-      const consumptionRate = 0.0035; // ml per puff
-      const consumedMl = totalPuffs * consumptionRate;
-      const mlRestants = Math.max(0, Math.round((totalMl - consumedMl) * 10) / 10);
 
       resistance_actuelle = {
         id: activeCoil.id,
@@ -94,7 +105,6 @@ export class JSONFileStorage implements IStorage {
       }));
     }
 
-    // 2. Get history
     const historyCoils = data.coils
       .filter(c => !c.isActive)
       .sort((a, b) => {
@@ -112,46 +122,33 @@ export class JSONFileStorage implements IStorage {
       taffes_total: c.totalPuffs || 0,
     }));
 
-    return {
-      resistance_actuelle,
-      historique,
-      logs_quotidiens
-    };
+    return { resistance_actuelle, historique, logs_quotidiens };
   }
 
   async addEntry(entry: InsertEntry): Promise<DailyLog> {
     const data = await this.loadData();
+    const nextId = (data.entries.length > 0 ? Math.max(...data.entries.map(e => e.id)) : 0) + 1;
     const newEntry: Entry = {
       ...entry,
-      id: (data.entries.length > 0 ? Math.max(...data.entries.map(e => e.id)) : 0) + 1,
+      id: nextId,
       createdAt: new Date(),
       mlAdded: entry.mlAdded ?? 0,
     };
-    
     data.entries.push(newEntry);
     await this.saveData();
-
-    return {
-      date: newEntry.date,
-      taffes: newEntry.puffs,
-      ml_ajoutes: newEntry.mlAdded,
-      ohms: newEntry.measuredOhms,
-    };
+    return { date: newEntry.date, taffes: newEntry.puffs, ml_ajoutes: newEntry.mlAdded, ohms: newEntry.measuredOhms };
   }
 
   async resetCoil(newCoilData: InsertCoil): Promise<CurrentCoilStatus> {
     const data = await this.loadData();
-
-    // 1. Archive current
     const activeCoil = data.coils.find(c => c.isActive);
 
     if (activeCoil) {
-      // Calculate final stats
       const coilEntries = data.entries.filter(e => e.coilId === activeCoil.id);
       const totalPuffs = coilEntries.reduce((sum, e) => sum + e.puffs, 0);
       const startDate = new Date(activeCoil.startedAt);
       const endDate = new Date();
-      const durationDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+      const durationDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)));
 
       activeCoil.isActive = false;
       activeCoil.endedAt = endDate.toISOString().split('T')[0];
@@ -159,26 +156,28 @@ export class JSONFileStorage implements IStorage {
       activeCoil.totalDurationDays = durationDays;
     }
 
-    // 2. Create new
+    const nextId = (data.coils.length > 0 ? Math.max(...data.coils.map(c => c.id)) : 0) + 1;
     const newCoil: Coil = {
       ...newCoilData,
-      id: (data.coils.length > 0 ? Math.max(...data.coils.map(c => c.id)) : 0) + 1,
+      id: nextId,
       isActive: true,
       endedAt: null,
       totalPuffs: null,
       totalDurationDays: null,
     };
-
     data.coils.push(newCoil);
     await this.saveData();
 
-    // Return status
+    // Calcul autonomie initiale correcte
+    const maxMlLife = USER_CONSTANTS.V_MAX_COIL / USER_CONSTANTS.S_COEFF;
+    const maxPuffsLife = Math.floor(maxMlLife * USER_CONSTANTS.PUFF_RATIO);
+
     return {
       id: newCoil.id,
       name: newCoil.name,
       date_debut: newCoil.startedAt,
       compteur_pod: 0,
-      taffes_restants: 3500,
+      taffes_restants: maxPuffsLife,
       ml_restants: 0,
       usure_pourcent: 0,
       ohms_initial: newCoil.initialOhms,
@@ -188,4 +187,3 @@ export class JSONFileStorage implements IStorage {
 }
 
 export const storage = new JSONFileStorage();
-
