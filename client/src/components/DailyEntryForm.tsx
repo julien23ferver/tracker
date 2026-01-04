@@ -41,14 +41,10 @@ export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: Daily
   // Watch values
   const watchedPuffs = watch("puffs");
 
-  // Auto-calculate ML based on puffs (1ml / 100 puffs)
-  useEffect(() => {
-    if (watchedPuffs > currentTotalPuffs) {
-        const diff = watchedPuffs - currentTotalPuffs;
-        const estimatedMl = Math.round((diff / 100) * 10) / 10; // Round to 1 decimal
-        setValue("mlAdded", estimatedMl);
-    }
-  }, [watchedPuffs, currentTotalPuffs, setValue]);
+  // Calculate estimated consumption for display only (visual guide)
+  const puffDiff = Math.max(0, (watchedPuffs || 0) - currentTotalPuffs);
+  // Using the calibrated rate roughly (0.0128) or keeping simple /100 for UI estimation
+  const estimatedConsumption = (puffDiff / 100).toFixed(1);
 
   const onSubmit = (data: EntryFormData) => {
     let dailyPuffs = data.puffs;
@@ -124,7 +120,7 @@ export function DailyEntryForm({ coilId, currentOhms, currentTotalPuffs }: Daily
                   {...register("mlAdded")}
                 />
                 <div className="absolute right-3 top-3 text-[10px] text-muted-foreground bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                    Est. conso: ~{watchedPuffs > currentTotalPuffs ? ((watchedPuffs - currentTotalPuffs) / 100).toFixed(1) : 0}ml
+                    Conso. estimée: ~{estimatedConsumption}ml
                 </div>
             </div>
             {errors.mlAdded && <p className="text-red-500 text-xs">{errors.mlAdded.message}</p>}
