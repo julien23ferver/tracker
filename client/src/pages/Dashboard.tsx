@@ -6,7 +6,9 @@ import { ResetDialog } from "@/components/ResetDialog";
 import { HistoryAccordion } from "@/components/HistoryAccordion";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cigarette, Droplets, Zap, Calendar, TrendingUp } from "lucide-react";
+import { DailyUsageChart } from "@/components/DailyUsageChart";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Cigarette, Droplets, Zap, Calendar, TrendingUp, Activity, History } from "lucide-react";
 import { format, addDays, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -32,6 +34,11 @@ export default function Dashboard() {
   }
 
   const { resistance_actuelle: current, historique, logs_quotidiens } = state;
+
+  // Calculate Device Total Puffs
+  const historyTotal = historique.reduce((acc, coil) => acc + (coil.taffes_total || 0), 0);
+  const currentTotal = current ? current.compteur_pod : 0;
+  const deviceTotalPuffs = historyTotal + currentTotal;
 
   // Derived calculations
   const wearColor = current?.usure_pourcent && current.usure_pourcent > 80 
@@ -63,7 +70,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -98,11 +105,19 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            
-            {/* Left Column: Status (7 cols on large) */}
-            <div className="lg:col-span-7 space-y-6">
-              
+          <Tabs defaultValue="usure" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-8 h-12 bg-slate-200/50 p-1 rounded-2xl">
+              <TabsTrigger value="usure" className="rounded-xl text-base font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                <Activity className="w-4 h-4 mr-2" />
+                Usure & Maintenance
+              </TabsTrigger>
+              <TabsTrigger value="conso" className="rounded-xl text-base font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                <TrendingUp className="w-4 h-4 mr-2" />
+                Consommation
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="usure" className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
               {/* Status Banner */}
               <StatusBanner 
                 isWarning={isDanger || isWarning} 
@@ -111,7 +126,7 @@ export default function Dashboard() {
               
               {/* Ohms specific warning */}
               {ohmsWarning && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-1">
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl flex items-center gap-3">
                   <Zap className="w-5 h-5" />
                   <span className="font-medium">Résistance instable : {current.ohms_actuel}Ω (Initial: {current.ohms_initial}Ω)</span>
                 </div>
@@ -120,7 +135,7 @@ export default function Dashboard() {
               {/* Wear Card */}
               <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-border/60 relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <TrendingUp className="w-32 h-32" />
+                  <Activity className="w-32 h-32" />
                 </div>
                 
                 <div className="relative z-10">
@@ -174,69 +189,87 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Predictions Card */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* Predictions Card */}
+               <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
                  <MetricCard 
                    label="Changement estimé (sur 150/j)" 
                    value={format(predictedEndDate, "d MMM", { locale: fr })}
                    subValue={`dans ~${estimatedDaysRemaining}j`}
                    icon={<Calendar className="w-5 h-5" />}
                  />
-                 <MetricCard 
-                   label="Utilisation Moyenne" 
-                   value={avgPuffs}
-                   subValue="taffes/jour"
-                   icon={<TrendingUp className="w-5 h-5" />}
-                   className="bg-blue-50/50 border-blue-100"
-                 />
               </div>
 
               <ResetDialog />
               <HistoryAccordion history={historique} />
-            </div>
+            </TabsContent>
 
-            {/* Right Column: Input Form (5 cols on large) */}
-            <div className="lg:col-span-5 relative">
-              <div className="sticky top-6 space-y-6">
-                <DailyEntryForm 
-                  coilId={current.id} 
-                  currentOhms={current.ohms_actuel} 
-                  currentTotalPuffs={deviceTotalPuffs}
-                />
-                
-                {/* Mini Log Feed */}
-                <div className="bg-white rounded-2xl border border-border/50 p-6 shadow-sm">
-                  <h3 className="font-bold font-display text-lg mb-4 text-slate-800">Derniers ajouts</h3>
-                  <div className="space-y-4">
-                    {logs_quotidiens.slice(0, 5).map((log, i) => (
-                      <div key={i} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 px-2 rounded-lg transition-colors -mx-2">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-700 text-sm">
-                            {format(parseISO(log.date), "EEE d MMM", { locale: fr })}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{log.taffes} taffes</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {log.ml_ajoutes > 0 && (
-                            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
-                              <Droplets className="w-3 h-3" /> +{log.ml_ajoutes}ml
-                            </span>
-                          )}
-                          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                            {log.ohms}Ω
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    {logs_quotidiens.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4 italic">Aucune donnée pour cette résistance</p>
-                    )}
+            <TabsContent value="conso" className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  
+                  {/* Left Column in Conso Tab: Entry Form & Stats */}
+                  <div className="lg:col-span-7 space-y-6">
+                    <DailyEntryForm 
+                      coilId={current.id} 
+                      currentOhms={current.ohms_actuel} 
+                      currentTotalPuffs={deviceTotalPuffs}
+                    />
+
+                    <MetricCard 
+                      label="Utilisation Moyenne" 
+                      value={avgPuffs}
+                      subValue="taffes/jour"
+                      icon={<TrendingUp className="w-5 h-5" />}
+                      className="bg-blue-50/50 border-blue-100"
+                    />
                   </div>
-                </div>
-              </div>
-            </div>
 
-          </div>
+                  {/* Right Column in Conso Tab: Logs */}
+                  <div className="lg:col-span-5">
+                    
+                    {/* Chart Section */}
+                    <div className="bg-white rounded-3xl border border-border/60 p-6 shadow-sm mb-6">
+                      <h3 className="font-bold font-display text-lg mb-4 text-slate-800">Activité Récente</h3>
+                      <DailyUsageChart data={logs_quotidiens} />
+                    </div>
+
+                    <div className="bg-white rounded-3xl border border-border/60 p-6 md:p-8 shadow-sm">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="bg-slate-100 p-2 rounded-xl">
+                          <History className="w-5 h-5 text-slate-600" />
+                        </div>
+                        <h3 className="font-bold font-display text-lg text-slate-900">Journal</h3>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {logs_quotidiens.slice(0, 10).map((log, i) => (
+                          <div key={i} className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 px-3 rounded-xl transition-colors -mx-3">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-700 text-sm">
+                                {format(parseISO(log.date), "EEE d MMM", { locale: fr })}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{log.taffes} taffes</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {log.ml_ajoutes > 0 && (
+                                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                                  <Droplets className="w-3 h-3" /> +{log.ml_ajoutes}ml
+                                </span>
+                              )}
+                              <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                {log.ohms}Ω
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {logs_quotidiens.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-8 italic">Aucune donnée pour cette résistance</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+               </div>
+            </TabsContent>
+          </Tabs>
         )}
       </div>
     </div>
@@ -246,7 +279,7 @@ export default function Dashboard() {
 function DashboardSkeleton() {
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-8">
         <div className="flex justify-between items-center">
           <div className="space-y-2">
             <Skeleton className="h-8 w-48" />
@@ -254,14 +287,9 @@ function DashboardSkeleton() {
           </div>
           <Skeleton className="h-12 w-48 rounded-lg" />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-7 space-y-6">
-            <Skeleton className="h-16 w-full rounded-xl" />
-            <Skeleton className="h-80 w-full rounded-3xl" />
-          </div>
-          <div className="lg:col-span-5">
-             <Skeleton className="h-96 w-full rounded-2xl" />
-          </div>
+        <div className="space-y-6">
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <Skeleton className="h-80 w-full rounded-3xl" />
         </div>
       </div>
     </div>
